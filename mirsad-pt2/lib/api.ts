@@ -1,3 +1,0 @@
-export async function api<T=any>(path:string,init?:RequestInit):Promise<T>{const res=await fetch('/api/'+path,{credentials:'same-origin',...init,headers:{...(init?.body instanceof FormData?{}:{'Content-Type':'application/json'}),...init?.headers}});let data:any;try{data=await res.json()}catch{throw new Error('تعذر الاتصال بالمنصة. أعد المحاولة.')}if(!res.ok)throw new Error(data.error||'تعذر إكمال العملية.');return data}
-export function post<T=any>(path:string,data:any={}){return api<T>(path,{method:'POST',body:JSON.stringify(data)})}
-export function patch<T=any>(path:string,data:any){return api<T>(path,{method:'PATCH',body:JSON.stringify(data)})}
