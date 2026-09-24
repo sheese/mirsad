@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": false,
-  "d1_databases": [{"binding":"DB","database_name":"mirsad-db","database_id":"00000000-0000-4000-8000-000000000000","migrations_dir":"drizzle"}],
+  "d1_databases": [{"binding":"DB","database_name":"mirsad-db","database_id":"3629588e-411d-49ba-97e8-32b7e2d82e4e","migrations_dir":"drizzle"}],
   "r2_buckets": [{"binding":"BUCKET","bucket_name":"mirsad-documents"}],
   "observability": {"enabled":true}
 }
