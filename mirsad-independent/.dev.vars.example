@@ -1,0 +1,5 @@
+# Set in Cloudflare Worker settings as secrets; never commit real values.
+ACCESS_TEAM_DOMAIN=https://YOUR-TEAM.cloudflareaccess.com
+ACCESS_AUD=YOUR-ACCESS-APPLICATION-AUD
+ADMIN_EMAILS=YOUR-VERIFIED-ADMIN-EMAIL
+ADMIN_ACCESS_CODE=CHOOSE-A-LONG-RANDOM-ADMIN-CODE

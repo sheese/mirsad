@@ -1,0 +1,30 @@
+import {createRequire} from 'node:module';
+import {generateKeyPair,exportJWK,SignJWT} from 'jose';
+const require=createRequire(import.meta.resolve('wrangler'));
+const {Miniflare}=require('miniflare');
+import {readFileSync,readdirSync} from 'node:fs';
+import assert from 'node:assert/strict';
+const {privateKey,publicKey}=await generateKeyPair('RS256');const jwk=await exportJWK(publicKey);jwk.kid='local-test';jwk.alg='RS256';jwk.use='sig';
+const issuer='https://mirsad-test.cloudflareaccess.com';const audience='test-audience';
+async function signedHeaders(user='company-a'){const token=await new SignJWT({email:user+'@example.test'}).setProtectedHeader({alg:'RS256',kid:'local-test'}).setSubject(user).setIssuer(issuer).setAudience(audience).setIssuedAt().setExpirationTime('1h').sign(privateKey);return {'Cf-Access-Jwt-Assertion':token};}
+const mf=new Miniflare({modules:[{type:'ESModule',path:process.cwd()+'/dist/server/index.js'},...readdirSync('dist/server',{recursive:true}).filter(p=>p.endsWith('.js')&&p!=='index.js').map(p=>({type:'ESModule',path:process.cwd()+'/dist/server/'+p}))],modulesRoot:process.cwd()+'/dist/server',compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],d1Databases:['DB'],r2Buckets:['BUCKET'],bindings:{ADMIN_ACCESS_CODE:'local-test-only',ADMIN_EMAILS:'staff@example.test',ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience},outboundService:async request=>{assert.equal(new URL(request.url).href,issuer+'/cdn-cgi/access/certs');return Response.json({keys:[jwk]})},assets:{directory:'dist/client',routerConfig:{has_user_worker:true},assetConfig:{html_handling:'none'},binding:'ASSETS'}});
+try{
+const db=await mf.getD1Database('DB');const migration=readFileSync('drizzle/0000_glamorous_micromacro.sql','utf8');for(const sql of migration.split('--> statement-breakpoint'))if(sql.trim())await db.prepare(sql.trim()).run();
+const spoof=await mf.dispatchFetch('http://localhost/api/me',{headers:{'oai-authenticated-user-id':'staff','oai-authenticated-user-email':'staff@example.test','Cf-Access-Authenticated-User-Email':'staff@example.test'}});assert.equal((await spoof.json()).authenticated,false);
+let cookie='';async function call(path,method='GET',body,user='company-a',expected=200){const r=await mf.dispatchFetch('http://localhost/api/'+path,{method,headers:{...await signedHeaders(user),'content-type':'application/json',...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});const raw=await r.text();if(!raw)throw new Error('Empty '+path+' status '+r.status+' '+JSON.stringify([...r.headers]));const data=JSON.parse(raw);assert.equal(r.status,expected,JSON.stringify(data));if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return data;}
+const login=await mf.dispatchFetch('http://localhost/login');assert.equal(login.status,200);assert.match(await login.text(),/مرحبًا بعودتك/);
+const register=await mf.dispatchFetch('http://localhost/register');assert.equal(register.status,200);assert.match(await register.text(),/مساحة شركتك/);
+await call('demo','POST',{});
+const form=new FormData();form.set('file',new File(['%PDF-1.4\nDemo QA file'], 'upload-test.pdf',{type:'application/pdf'}));
+const encoded=new Request('http://localhost',{method:'POST',body:form});
+const upload=await mf.dispatchFetch('http://localhost/api/documents',{method:'POST',headers:{...await signedHeaders('company-a'),'content-type':encoded.headers.get('content-type')},body:await encoded.arrayBuffer()});assert.equal(upload.status,201);const uploaded=await upload.json();
+const download=await mf.dispatchFetch('http://localhost/api/files/'+uploaded.id,{headers:{...await signedHeaders('company-a')}});assert.equal(download.status,200);assert.equal(await download.text(),'%PDF-1.4\nDemo QA file');
+console.log('PASS: login/register HTML routes, actual multipart upload and file read-back');
+let data=await call('data');assert.equal(data.employees.length,6);assert.equal(data.documents.length,4);assert.equal(data.requests.length,3);await call('demo','POST',{});assert.equal((await call('data')).employees.length,6);
+const e=await call('employees','POST',{full_name:'موظف اختبار',employee_number:'QA-7',job_title:'محاسب',start_date:'2024-01-01',contract_type:'غير محدد المدة'},'company-a',201);await call('employees/'+e.id,'PATCH',{archived:1});assert.equal((await call('data')).employees.find(x=>x.id===e.id).archived,1);await call('employees/'+e.id,'PATCH',{archived:0});
+const aid=crypto.randomUUID();await call('analyses','POST',{id:aid,scenario:'termination',employee_id:e.id,inputs:{reason:'إعادة هيكلة',written:'نعم',dues:'غير معلوم'},document_ids:[data.documents[0].id]},'company-a',201);
+const rid=crypto.randomUUID();const req=await call('requests','POST',{id:rid,analysis_id:aid,type:'مراجعة موظف',description:'طلب تجريبي لمراجعة حالة الموظف',urgency:'عادي',document_ids:[]},'company-a',201);assert.equal((await call('requests/'+rid)).documents.length,1);await call('requests','POST',{id:rid,type:'مراجعة موظف',description:'طلب تجريبي لمراجعة حالة الموظف',urgency:'عادي',document_ids:[]});
+await call('company','POST',{name:'شركة أخرى',contact_name:'اختبار'},'company-b',201);await call('requests/'+rid,'GET',null,'company-b',404);await call('data?scope=admin','GET',null,'company-b',403);
+await call('admin/login','POST',{code:'local-test-only'},'company-a',403);await call('admin/login','POST',{code:'local-test-only'},'staff');await call('data?scope=admin','GET',null,'staff');let version=0;for(const status of ['reviewing','waiting','reviewing','reviewed','closed']){await call('requests/'+rid,'PATCH',{event_id:crypto.randomUUID(),status,version:version++,message:'رسالة مراجعة تجريبية'},status==='reviewing'&&version===3?'company-a':'staff');}
+const detail=await call('requests/'+rid,'GET',null,'staff');assert.equal(detail.request.status,'closed');assert.equal(detail.events.length,6);console.log('PASS: demo seed, employee add/archive/restore, analysis, inherited attachments, idempotent request, company isolation, admin access, all request statuses');
+}finally{await mf.dispose()}
